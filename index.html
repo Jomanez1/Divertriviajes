@@ -6,24 +6,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Divertiviajes! 🌈 Concurso de Preguntas</title>
 
-<!-- ============================================================
-  ADMOB — IDs DE PRUEBA (Google oficiales, funcionan sin cuenta)
-  Cuando tengas tu cuenta AdMob, sustituye SOLO los valores
-  dentro de ADMOB_IDS por los tuyos propios.
-  ============================================================ -->
-<script>
-  const ADMOB_IDS = {
-    // ⚠️ CAMBIA ESTOS IDs POR LOS TUYOS CUANDO REGISTRES LA APP EN ADMOB
-    banner:       'ca-app-pub-3940256099942544/6300978111',  // ID prueba — Banner
-    interstitial: 'ca-app-pub-3940256099942544/1033173712',  // ID prueba — Intersticial
-  };
-</script>
-<!-- SDK AdSense/AdMob Web -->
-<!-- AdMob SDK: se carga de forma no bloqueante -->
-<script>
-window.adsbygoogle = window.adsbygoogle || [];
-</script>
-<script async onerror="console.warn('AdMob SDK no disponible')" src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3940256099942544" crossorigin="anonymous"></script>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -278,119 +260,16 @@ window.adsbygoogle = window.adsbygoogle || [];
     100%{transform:translateY(-20vh) rotate(360deg);opacity:0;}
   }
 
-  /* ====== ADMOB BANNER SUPERIOR ====== */
-  #admob-banner{
-    position:fixed;top:0;left:0;width:100%;
-    height:60px;
-    background:#1a1a2e;
-    display:flex;align-items:center;justify-content:center;
-    z-index:10000;
-    border-bottom:3px solid rgba(255,255,255,0.1);
-  }
-  #admob-banner ins.adsbygoogle{
-    display:inline-block;
-    width:320px;height:50px;
-    margin:0 auto;
-  }
-  /* Cuando el banner está visible, empuja el contenido */
-  body.has-banner{padding-top:60px;}
-  body.has-banner #screen-splash{top:60px;height:calc(100% - 60px);}
-
-  /* ====== ADMOB INTERSTICIAL ====== */
-  #admob-interstitial{
-    position:fixed;top:0;left:0;width:100%;height:100%;
-    background:rgba(0,0,0,0.92);
-    z-index:99999;
-    display:none;
-    flex-direction:column;align-items:center;justify-content:center;
-    animation:fadeIn 0.3s ease;
-  }
-  #admob-interstitial.visible{display:flex;}
-  .inter-container{
-    background:#fff;border-radius:20px;
-    width:min(90vw,380px);
-    overflow:hidden;
-    box-shadow:0 24px 60px rgba(0,0,0,0.5);
-    position:relative;
-  }
-  .inter-topbar{
-    background:#1a1a2e;
-    padding:10px 16px;
-    display:flex;align-items:center;justify-content:space-between;
-  }
-  .inter-topbar span{color:#aaa;font-size:.75rem;font-family:'Nunito',sans-serif;}
-  .inter-countdown{
-    background:var(--pink);color:white;
-    border-radius:50%;width:30px;height:30px;
-    display:flex;align-items:center;justify-content:center;
-    font-family:'Fredoka One',cursive;font-size:1rem;
-    transition:background 0.3s;
-  }
-  .inter-countdown.ready{
-    background:var(--green);cursor:pointer;
-  }
-  .inter-ad-area{
-    background:linear-gradient(135deg,#f8f9ff,#f0f4ff);
-    min-height:260px;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    padding:20px;
-    text-align:center;
-  }
-  .inter-ad-area ins.adsbygoogle{
-    display:inline-block;
-    width:300px;height:250px;
-  }
-  .inter-label{
-    font-size:.7rem;color:#aaa;font-family:'Nunito',sans-serif;
-    margin-top:8px;
-    font-weight:700;letter-spacing:1px;text-transform:uppercase;
-  }
-  .inter-close-btn{
-    display:none;
-    width:100%;padding:14px;
-    background:linear-gradient(135deg,#2ECC71,#3498DB);
-    border:none;color:white;
-    font-family:'Fredoka One',cursive;font-size:1.1rem;
-    cursor:pointer;
-    transition:opacity .2s;
-  }
-  .inter-close-btn.visible{display:block;}
-  .inter-close-btn:hover{opacity:.9;}
 
 </style>
 </head>
 <body>
 
-<!-- ====== ADMOB BANNER SUPERIOR ====== -->
-<div id="admob-banner">
-  <ins class="adsbygoogle"
-       style="display:inline-block;width:320px;height:50px"
-       data-ad-client="ca-pub-3940256099942544"
-       data-ad-slot="BANNER_SLOT_ID_AQUI"
-       data-ad-format="banner"
-       data-full-width-responsive="false"></ins>
-</div>
 
-<!-- ====== ADMOB INTERSTICIAL ====== -->
-<div id="admob-interstitial">
-  <div class="inter-container">
-    <div class="inter-topbar">
-      <span>Anuncio</span>
-      <div class="inter-countdown" id="interCountdown">5</div>
     </div>
-    <div class="inter-ad-area">
-      <ins class="adsbygoogle"
-           style="display:inline-block;width:300px;height:250px"
-           data-ad-client="ca-pub-3940256099942544"
-           data-ad-slot="INTERSTITIAL_SLOT_ID_AQUI"
-           data-ad-format="rectangle"
-           data-full-width-responsive="false"></ins>
-      <div class="inter-label">Publicidad</div>
+    <div class="inter-ad-area">      <div class="inter-label">Publicidad</div>
     </div>
-    <button class="inter-close-btn" id="interCloseBtn" onclick="closeInterstitial()">
-      ¡Jugar ahora! 🎮
-    </button>
-  </div>
+      </div>
 </div>
 
 
@@ -1555,63 +1434,16 @@ function launchConfetti(){
 function stopConfetti(){ document.getElementById('confetti').innerHTML=''; }
 </script>
   <script>
-  // Service Worker
   if (typeof navigator.serviceWorker !== 'undefined') {
     navigator.serviceWorker.register('sw.js');
   }
 
-  // ====== ADMOB — Banner ======
-  // Las funciones están en scope global para que los onclick del HTML las encuentren
-  document.body.classList.add('has-banner');
-  try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e){}
-
-  // ====== SPLASH SCREEN ======
   function startSplash() {
     var splash = document.getElementById('screen-splash');
     splash.classList.add('hide');
-    setTimeout(function() {
-      splash.style.display = 'none';
-      showInterstitial();
-    }, 650);
+    setTimeout(function() { splash.style.display = 'none'; }, 650);
   }
 
-  // ====== INTERSTICIAL ======
-  var interTimer = null;
-
-  function showInterstitial() {
-    var overlay   = document.getElementById('admob-interstitial');
-    var countdown = document.getElementById('interCountdown');
-    var closeBtn  = document.getElementById('interCloseBtn');
-
-    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e){}
-
-    overlay.classList.add('visible');
-    var seconds = 5;
-    countdown.textContent = seconds;
-    countdown.classList.remove('ready');
-    closeBtn.classList.remove('visible');
-
-    clearInterval(interTimer);
-    interTimer = setInterval(function() {
-      seconds--;
-      countdown.textContent = seconds;
-      if (seconds <= 0) {
-        clearInterval(interTimer);
-        countdown.textContent = '✕';
-        countdown.classList.add('ready');
-        closeBtn.classList.add('visible');
-      }
-    }, 1000);
-  }
-
-  function closeInterstitial() {
-    clearInterval(interTimer);
-    var overlay = document.getElementById('admob-interstitial');
-    overlay.classList.remove('visible');
-    // La pantalla de configuración ya está activa debajo, no hay nada más que hacer
-  }
-
-  // ====== ESTRELLAS SPLASH ======
   document.addEventListener('DOMContentLoaded', function() {
     var stars  = document.getElementById('splashStars');
     var emojis = ['⭐','🌟','✨','🎉','🎊','🌈','🎈','💫'];
