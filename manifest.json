@@ -1,8 +1,8 @@
 {
- "name": "Divertiviaje",
-  "short_name": "Divertiviaje",
+ "name": "Divertriviaje",
+  "short_name": "Divertriviaje",
   "description": "Juego de preguntas para jugar en familia y hacer mas amenos los viajes, preguntas offline.",
-  "start_url": "/Divertiviaje/",
+  "start_url": "/Divertriviaje/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#007bff",
