@@ -1,2 +1,2 @@
-# Divertiviaje
+# Divertriviaje
 Juego de preguntas Divertido
