@@ -900,43 +900,10 @@ window.addEventListener('load', () => {
   initPlayerGrid(2);
   applyQuestions(PREGUNTAS_DB);
 
-  // ── Cargar voces: en WebView llegan de forma asíncrona ──
-  // Punto 1: siempre escuchar onvoiceschanged + reintentos
-  function tryLoadVoices(){
-    if(!window.speechSynthesis){ ttsLog('warn','speechSynthesis no existe en este WebView'); return; }
-    const vs = window.speechSynthesis.getVoices();
-    ttsLog('log', 'tryLoadVoices()', { voicesDisponibles: vs.length });
-    if(vs.length > 0){
-      loadVoices();
-      ttsLog('log', 'Voces cargadas inmediatamente', vs.map(function(v){ return v.name; }));
-    } else {
-      ttsLog('warn', 'Voces aún no disponibles, esperando onvoiceschanged...');
-    }
-  }
-
-  if(window.speechSynthesis){
-    // onvoiceschanged: se dispara cuando las voces del sistema están listas
-    window.speechSynthesis.onvoiceschanged = function(){
-      const vs = window.speechSynthesis.getVoices();
-      ttsLog('log', 'onvoiceschanged disparado', { voicesDisponibles: vs.length, nombres: vs.map(function(v){ return v.name; }) });
-      loadVoices();
-    };
-    // Intentar inmediatamente (algunas WebViews ya las tienen)
-    tryLoadVoices();
-    // Reintento a los 500ms y 1500ms por si el evento no llega (bug conocido en algunas versiones de Android)
-    setTimeout(function(){
-      const vs = window.speechSynthesis.getVoices();
-      ttsLog('log', 'Reintento voces 500ms', { count: vs.length });
-      if(vs.length > 0) loadVoices();
-    }, 500);
-    setTimeout(function(){
-      const vs = window.speechSynthesis.getVoices();
-      ttsLog('log', 'Reintento voces 1500ms', { count: vs.length });
-      if(vs.length > 0) loadVoices();
-    }, 1500);
-  } else {
-    ttsLog('error', 'window.speechSynthesis es null/undefined — TTS no disponible en este WebView');
-  }
+  // ── Cargar voces con polling robusto para Android WebView ──
+  // En WebView, speechSynthesis puede llegar undefined en window.load
+  // pero aparecer después del primer gesto de usuario. Usamos polling.
+  initTTSWithPolling();
 });
 
 // Cache de voces por narrador (se rellena lazy)
@@ -1019,10 +986,100 @@ function ttsLog(level, msg, extra){
 }
 
 // ── 2. Diagnóstico inicial al cargar ────────────────────
-ttsLog('log', 'speechSynthesis disponible', !!window.speechSynthesis);
+ttsLog('log', 'speechSynthesis disponible al cargar', !!window.speechSynthesis);
 if(window.speechSynthesis){
   ttsLog('log', 'Estado inicial speechSynthesis',
     { speaking: speechSynthesis.speaking, pending: speechSynthesis.pending, paused: speechSynthesis.paused });
+}
+
+// ── initTTSWithPolling ───────────────────────────────────
+// Solución al problema "speechSynthesis undefined en WebView":
+// Algunas versiones de Android WebView exponen speechSynthesis
+// DESPUÉS del primer gesto de usuario, no en window.load.
+// Este polling lo detecta en cuanto aparece (máx. 10 segundos).
+var _ttsPollingTimer = null;
+var _ttsPollingAttempts = 0;
+var _ttsReady = false;
+
+function initTTSWithPolling(){
+  ttsLog('log', 'initTTSWithPolling() arrancado');
+
+  function attempt(){
+    _ttsPollingAttempts++;
+    var ss = window.speechSynthesis;
+
+    ttsLog('log', 'Polling TTS intento #' + _ttsPollingAttempts, {
+      speechSynthesisExists: !!ss,
+      type: typeof ss
+    });
+
+    if(ss){
+      ttsLog('log', 'speechSynthesis ENCONTRADO en intento #' + _ttsPollingAttempts);
+      clearInterval(_ttsPollingTimer);
+      _ttsReady = true;
+
+      // Registrar onvoiceschanged
+      ss.onvoiceschanged = function(){
+        var vs = ss.getVoices();
+        ttsLog('log', 'onvoiceschanged', { count: vs.length, voces: vs.map(function(v){ return v.name; }) });
+        if(vs.length > 0) loadVoices();
+      };
+
+      // Intentar cargar voces ya
+      var vs = ss.getVoices();
+      ttsLog('log', 'Voces al detectar speechSynthesis', { count: vs.length });
+      if(vs.length > 0){
+        loadVoices();
+      } else {
+        ttsLog('warn', 'Voces aún vacías, esperando onvoiceschanged...');
+        // Reintentos extra por si onvoiceschanged no llega
+        setTimeout(function(){
+          var v2 = ss.getVoices();
+          ttsLog('log', 'Reintento voces +800ms', { count: v2.length });
+          if(v2.length > 0) loadVoices();
+        }, 800);
+        setTimeout(function(){
+          var v3 = ss.getVoices();
+          ttsLog('log', 'Reintento voces +2500ms', { count: v3.length });
+          if(v3.length > 0) loadVoices();
+        }, 2500);
+      }
+    } else if(_ttsPollingAttempts >= 20){
+      // 20 intentos × 500ms = 10 segundos máximo
+      clearInterval(_ttsPollingTimer);
+      ttsLog('error', 'speechSynthesis nunca apareció tras 10s — TTS no disponible en este dispositivo/WebView');
+      showAudioBar(); // Muestra la barra para avisar al usuario
+    }
+  }
+
+  // Primer intento inmediato
+  attempt();
+  // Polling cada 500ms si no se encontró aún
+  if(!_ttsReady){
+    _ttsPollingTimer = setInterval(attempt, 500);
+  }
+}
+
+// ── fallbackTTSOnGesture ─────────────────────────────────
+// Llamado desde los botones clave (Comenzar, Estoy listo, Empezar juego)
+// Por si el polling no lo detectó antes del primer gesto de usuario.
+function fallbackTTSOnGesture(origin){
+  ttsLog('log', 'fallbackTTSOnGesture() desde: ' + origin, { _ttsReady: _ttsReady });
+  resumeAudioContext();
+  if(!_ttsReady){
+    if(window.speechSynthesis){
+      ttsLog('log', 'fallback: speechSynthesis apareció tras gesto de usuario ✓');
+      clearInterval(_ttsPollingTimer);
+      _ttsReady = true;
+      var vs = window.speechSynthesis.getVoices();
+      ttsLog('log', 'fallback: voces disponibles', { count: vs.length });
+      if(vs.length > 0) loadVoices();
+      // Intentar desbloquear TTS ahora que estamos en contexto de usuario
+      unlockTTS();
+    } else {
+      ttsLog('error', 'fallback: speechSynthesis sigue undefined tras gesto en ' + origin);
+    }
+  }
 }
 
 // ── 3. AudioContext — resume() en primer toque ──────────
@@ -1247,6 +1304,7 @@ function testVoice(){ speak(`¡Hola! Soy ${NARRATORS[state.narratorIdx].name}. �
 // INICIO
 // =====================================================
 function startGame(){
+  fallbackTTSOnGesture('startGame');
   const count = parseInt(document.querySelector('.pcount-btn.selected').dataset.count);
   state.players=[];
   for(let i=0;i<count;i++){
@@ -1309,6 +1367,7 @@ function showWaitScreen(){
 }
 
 function readyToPlay(){
+  fallbackTTSOnGesture('readyToPlay');
   const p=state.players[state.currentPlayerIdx];
   showScreen('screen-game');
   if(state.tiebreakMode) loadTiebreakQuestion();
@@ -1664,6 +1723,7 @@ function stopConfetti(){ document.getElementById('confetti').innerHTML=''; }
   }
 
   function startSplash() {
+    fallbackTTSOnGesture('splash-comenzar');
     var splash = document.getElementById('screen-splash');
     splash.classList.add('hide');
     setTimeout(function() { splash.style.display = 'none'; }, 650);
