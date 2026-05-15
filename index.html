@@ -900,16 +900,42 @@ window.addEventListener('load', () => {
   initPlayerGrid(2);
   applyQuestions(PREGUNTAS_DB);
 
-  // Cargar voces: en móvil llegan de forma asíncrona
+  // ── Cargar voces: en WebView llegan de forma asíncrona ──
+  // Punto 1: siempre escuchar onvoiceschanged + reintentos
   function tryLoadVoices(){
-    const vs = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+    if(!window.speechSynthesis){ ttsLog('warn','speechSynthesis no existe en este WebView'); return; }
+    const vs = window.speechSynthesis.getVoices();
+    ttsLog('log', 'tryLoadVoices()', { voicesDisponibles: vs.length });
     if(vs.length > 0){
       loadVoices();
+      ttsLog('log', 'Voces cargadas inmediatamente', vs.map(function(v){ return v.name; }));
+    } else {
+      ttsLog('warn', 'Voces aún no disponibles, esperando onvoiceschanged...');
     }
   }
-  tryLoadVoices();
+
   if(window.speechSynthesis){
-    window.speechSynthesis.onvoiceschanged = () => { loadVoices(); };
+    // onvoiceschanged: se dispara cuando las voces del sistema están listas
+    window.speechSynthesis.onvoiceschanged = function(){
+      const vs = window.speechSynthesis.getVoices();
+      ttsLog('log', 'onvoiceschanged disparado', { voicesDisponibles: vs.length, nombres: vs.map(function(v){ return v.name; }) });
+      loadVoices();
+    };
+    // Intentar inmediatamente (algunas WebViews ya las tienen)
+    tryLoadVoices();
+    // Reintento a los 500ms y 1500ms por si el evento no llega (bug conocido en algunas versiones de Android)
+    setTimeout(function(){
+      const vs = window.speechSynthesis.getVoices();
+      ttsLog('log', 'Reintento voces 500ms', { count: vs.length });
+      if(vs.length > 0) loadVoices();
+    }, 500);
+    setTimeout(function(){
+      const vs = window.speechSynthesis.getVoices();
+      ttsLog('log', 'Reintento voces 1500ms', { count: vs.length });
+      if(vs.length > 0) loadVoices();
+    }, 1500);
+  } else {
+    ttsLog('error', 'window.speechSynthesis es null/undefined — TTS no disponible en este WebView');
   }
 });
 
@@ -979,55 +1005,142 @@ function transformTextForNarrator(text, narIdx){
   }
 }
 
-// -------------------------------------------------------
-// TTS — compatible móvil. Regla de oro: speak() SIEMPRE
-// debe llamarse en la misma pila del evento de usuario.
-// Nunca dentro de un setTimeout.
-// -------------------------------------------------------
+// ═══════════════════════════════════════════════════════
+// TTS — Android WebView compatible
+// Logs visibles en Logcat (Android Studio) via console.*
+// ═══════════════════════════════════════════════════════
+
+// ── 1. Logger centralizado (aparece en Logcat) ──────────
+function ttsLog(level, msg, extra){
+  var out = '[Divertriviaje TTS] ' + msg + (extra !== undefined ? ' → ' + JSON.stringify(extra) : '');
+  if(level === 'error')   console.error(out);
+  else if(level === 'warn') console.warn(out);
+  else                    console.log(out);
+}
+
+// ── 2. Diagnóstico inicial al cargar ────────────────────
+ttsLog('log', 'speechSynthesis disponible', !!window.speechSynthesis);
+if(window.speechSynthesis){
+  ttsLog('log', 'Estado inicial speechSynthesis',
+    { speaking: speechSynthesis.speaking, pending: speechSynthesis.pending, paused: speechSynthesis.paused });
+}
+
+// ── 3. AudioContext — resume() en primer toque ──────────
+var _audioCtx = null;
+function getAudioContext(){
+  if(!_audioCtx){
+    try {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      ttsLog('log', 'AudioContext creado', { state: _audioCtx.state });
+    } catch(e){ ttsLog('error', 'AudioContext no disponible', e.message); }
+  }
+  return _audioCtx;
+}
+
+function resumeAudioContext(){
+  var ctx = getAudioContext();
+  if(ctx && ctx.state === 'suspended'){
+    ctx.resume().then(function(){
+      ttsLog('log', 'AudioContext resumido OK', { state: ctx.state });
+    }).catch(function(e){
+      ttsLog('error', 'AudioContext.resume() falló', e.message);
+    });
+  } else if(ctx){
+    ttsLog('log', 'AudioContext ya activo', { state: ctx.state });
+  }
+}
+
+// ── 4. Estado de desbloqueo TTS ──────────────────────────
 let ttsUnlocked = false;
 let audioBarDismissed = false;
 
-// Intenta hacer una utterance silenciosa para desbloquear el contexto de audio.
-// En Android WebView esto DEBE ocurrir dentro del handler del evento de usuario.
+// ── 5. Desbloqueo automático en primer gesto ─────────────
 function unlockTTS(){
-  if(ttsUnlocked || !window.speechSynthesis) return;
+  ttsLog('log', 'unlockTTS() disparado por gesto de usuario');
+  resumeAudioContext();
+
+  if(ttsUnlocked || !window.speechSynthesis){
+    ttsLog('warn', 'unlockTTS: ya desbloqueado o speechSynthesis no existe');
+    return;
+  }
+
   try {
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(' ');
-    u.volume = 0; u.rate = 10; u.pitch = 1;
-    u.onstart = function(){ ttsUnlocked = true; hideAudioBar(); };
-    u.onend   = function(){ ttsUnlocked = true; hideAudioBar(); };
-    u.onerror = function(){ showAudioBar(); };
+    const u = new SpeechSynthesisUtterance(' '); // espacio no-break
+    u.volume = 0; u.rate = 10; u.pitch = 1; u.lang = 'es-ES';
+
+    u.onstart = function(){
+      ttsLog('log', 'unlockTTS: onstart — audio DESBLOQUEADO ✓');
+      ttsUnlocked = true;
+      hideAudioBar();
+    };
+    u.onend = function(){
+      ttsLog('log', 'unlockTTS: onend');
+      ttsUnlocked = true;
+      hideAudioBar();
+    };
+    u.onerror = function(e){
+      ttsLog('error', 'unlockTTS: onerror', { error: e.error, message: e.message });
+      showAudioBar();
+    };
+
     window.speechSynthesis.speak(u);
-    // Si en 800ms no ha disparado onstart, asumimos que está bloqueado
+    ttsLog('log', 'unlockTTS: utterance silenciosa enviada');
+
+    // Fallback: si en 900ms no ha respondido, mostrar barra manual
     setTimeout(function(){
-      if(!ttsUnlocked && !audioBarDismissed){ showAudioBar(); }
-    }, 800);
-  } catch(e){ showAudioBar(); }
+      if(!ttsUnlocked && !audioBarDismissed){
+        ttsLog('warn', 'unlockTTS: timeout 900ms sin onstart — mostrando barra manual');
+        showAudioBar();
+      }
+    }, 900);
+
+  } catch(e){
+    ttsLog('error', 'unlockTTS: excepción', e.message);
+    showAudioBar();
+  }
 }
 
-// El usuario pulsa "Activar sonido" — garantizado dentro de un click handler
+// ── 6. Botón manual "Activar sonido" ─────────────────────
 function doUnlockAudio(){
-  if(!window.speechSynthesis) return;
+  ttsLog('log', 'doUnlockAudio() pulsado por usuario');
+  resumeAudioContext();
+
+  if(!window.speechSynthesis){
+    ttsLog('error', 'doUnlockAudio: speechSynthesis no disponible');
+    return;
+  }
   try {
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance('Sonido activado');
-    u.lang = 'es-ES'; u.volume = 0.01; u.rate = 2;
-    u.onstart = function(){ ttsUnlocked = true; hideAudioBar(); };
-    u.onend   = function(){ ttsUnlocked = true; hideAudioBar(); };
+    const u = new SpeechSynthesisUtterance('listo');
+    u.lang = 'es-ES'; u.volume = 0.01; u.rate = 1.5;
+
+    u.onstart = function(){
+      ttsLog('log', 'doUnlockAudio: onstart — audio DESBLOQUEADO manualmente ✓');
+      ttsUnlocked = true;
+      hideAudioBar();
+    };
+    u.onend = function(){
+      ttsUnlocked = true;
+      hideAudioBar();
+    };
+    u.onerror = function(e){
+      ttsLog('error', 'doUnlockAudio: onerror tras pulsar botón', { error: e.error });
+    };
+
     window.speechSynthesis.speak(u);
-  } catch(e){}
+  } catch(e){
+    ttsLog('error', 'doUnlockAudio: excepción', e.message);
+  }
 }
 
 function showAudioBar(){
   if(audioBarDismissed) return;
   document.getElementById('audio-unlock-bar').classList.add('visible');
 }
-
 function hideAudioBar(){
   document.getElementById('audio-unlock-bar').classList.remove('visible');
 }
-
 function dismissAudioBar(){
   audioBarDismissed = true;
   hideAudioBar();
@@ -1036,10 +1149,20 @@ function dismissAudioBar(){
 document.addEventListener('touchstart', unlockTTS, { once:true, passive:true });
 document.addEventListener('click',      unlockTTS, { once:true });
 
+// ── 7. speak() con logs completos ────────────────────────
 function speak(text){
-  if(!window.speechSynthesis || !text) return;
-  // Corrige bug Android: a veces queda en pausa indefinida
-  try { window.speechSynthesis.resume(); } catch(e){}
+  if(!text){ ttsLog('warn', 'speak() llamado con texto vacío'); return; }
+  if(!window.speechSynthesis){ ttsLog('error', 'speak(): speechSynthesis no disponible'); return; }
+
+  ttsLog('log', 'speak() iniciado', { ttsUnlocked: ttsUnlocked, texto: text.slice(0,60) });
+
+  // Bug Android: puede quedarse en pausa indefinida — siempre hacer resume primero
+  try {
+    window.speechSynthesis.resume();
+    ttsLog('log', 'speak(): resume() llamado',
+      { speaking: speechSynthesis.speaking, paused: speechSynthesis.paused });
+  } catch(e){ ttsLog('warn', 'speak(): resume() falló', e.message); }
+
   window.speechSynthesis.cancel();
 
   const narIdx = state.narratorIdx;
@@ -1052,9 +1175,26 @@ function speak(text){
   u.rate   = Math.min(2, Math.max(0.4, state.ttsRate  * nar.rate));
   u.pitch  = Math.min(2, Math.max(0.1, state.ttsPitch * nar.pitch));
   u.volume = 1;
-  if(voice) u.voice = voice;
+  if(voice){ u.voice = voice; ttsLog('log', 'speak(): voz seleccionada', voice.name); }
+  else { ttsLog('warn', 'speak(): sin voz específica, usando la del sistema'); }
 
-  window.speechSynthesis.speak(u);
+  u.onstart = function(){ ttsLog('log', 'speak(): onstart — reproduciendo ✓'); };
+  u.onend   = function(){ ttsLog('log', 'speak(): onend — fin OK'); };
+  u.onerror = function(e){
+    ttsLog('error', 'speak(): onerror', { error: e.error, charIndex: e.charIndex });
+    // Si es NotAllowedError, el audio sigue bloqueado — mostrar barra
+    if(e.error === 'not-allowed' || e.error === 'NotAllowedError'){
+      ttsUnlocked = false;
+      showAudioBar();
+    }
+  };
+
+  try {
+    window.speechSynthesis.speak(u);
+    ttsLog('log', 'speak(): utterance enviada al sintetizador');
+  } catch(e){
+    ttsLog('error', 'speak(): excepción al llamar .speak()', e.message);
+  }
 }
 
 // =====================================================
