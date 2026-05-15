@@ -1166,14 +1166,18 @@ function doUnlockAudio(){
   resumeAudioContext();
 
   // ── PRIORIDAD 1: Puente nativo ───────────────────────────
-  if(window.Android && typeof window.Android.speak === 'function'){
-    ttsLog('log', 'doUnlockAudio: usando Android.speak() para prueba ✓');
+  if(window.Android){
+    ttsLog('log', 'doUnlockAudio: probando puente nativo Android ✓');
     try {
-      window.Android.speak('Sonido activado');
+      if(typeof window.Android.speakWithParams === 'function'){
+        window.Android.speakWithParams('Sonido activado', 1.0, 1.0, 'female');
+      } else if(typeof window.Android.speak === 'function'){
+        window.Android.speak('Sonido activado');
+      }
       ttsUnlocked = true;
       hideAudioBar();
     } catch(e){
-      ttsLog('error', 'doUnlockAudio: Android.speak() falló', e.message);
+      ttsLog('error', 'doUnlockAudio: puente nativo falló', e.message);
     }
     return;
   }
@@ -1219,67 +1223,89 @@ document.addEventListener('touchstart', unlockTTS, { once:true, passive:true });
 document.addEventListener('click',      unlockTTS, { once:true });
 
 // ── 7. speak() — puente nativo primero, Web Speech API como fallback ──
+//
+// PARA EL DESARROLLADOR ANDROID:
+// La web llama a window.Android.speakWithParams(texto, pitch, rate, genero)
+// Debes exponer en tu JavascriptInterface:
+//
+//   @JavascriptInterface
+//   public void speakWithParams(String text, float pitch, float rate, String gender) {
+//       tts.setPitch(pitch);
+//       tts.setSpeechRate(rate);
+//       // gender = "male" o "female" — úsalo para elegir la voz si tu dispositivo lo soporta
+//       tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+//   }
+//
+//   @JavascriptInterface
+//   public void speak(String text) {               // fallback por compatibilidad
+//       tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+//   }
+//
 function speak(text){
   if(!text){ ttsLog('warn', 'speak() llamado con texto vacío'); return; }
 
-  // Aplicar transformaciones de narrador al texto antes de enviarlo
-  const narIdx      = state.narratorIdx;
-  const nar         = NARRATORS[narIdx];
+  const narIdx        = state.narratorIdx;
+  const nar           = NARRATORS[narIdx];
   const processedText = transformTextForNarrator(text, narIdx);
+  const pitch         = parseFloat(Math.min(2, Math.max(0.1, state.ttsPitch * nar.pitch)).toFixed(2));
+  const rate          = parseFloat(Math.min(2, Math.max(0.4, state.ttsRate  * nar.rate )).toFixed(2));
+  const gender        = nar.preferGender; // "male" | "female"
 
-  // ── PRIORIDAD 1: Puente nativo Android.speak() ──────────
-  // El desarrollador de la App ha expuesto window.Android.speak(text)
-  // que usa el motor TTS nativo de Android (el más fiable en WebView).
-  if(window.Android && typeof window.Android.speak === 'function'){
-    ttsLog('log', 'speak(): usando puente nativo Android.speak() ✓', { texto: processedText.slice(0,60) });
-    try {
-      window.Android.speak(processedText);
-    } catch(e){
-      ttsLog('error', 'speak(): Android.speak() lanzó excepción', e.message);
+  // ── PRIORIDAD 1: Puente nativo con parámetros ────────────
+  if(window.Android){
+    // Preferir speakWithParams (controla tono, velocidad y voz)
+    if(typeof window.Android.speakWithParams === 'function'){
+      ttsLog('log', 'speak(): Android.speakWithParams() ✓', { pitch, rate, gender, texto: processedText.slice(0,60) });
+      try { window.Android.speakWithParams(processedText, pitch, rate, gender); } catch(e){
+        ttsLog('error', 'speak(): speakWithParams() falló', e.message);
+      }
+      return;
     }
-    return;
+    // Fallback al speak() simple si speakWithParams aún no está implementado
+    if(typeof window.Android.speak === 'function'){
+      ttsLog('warn', 'speak(): speakWithParams no disponible, usando Android.speak() sin parámetros');
+      try { window.Android.speak(processedText); } catch(e){
+        ttsLog('error', 'speak(): Android.speak() falló', e.message);
+      }
+      return;
+    }
   }
 
-  // ── PRIORIDAD 2: Web Speech API (navegador normal / PWA) ─
-  ttsLog('log', 'speak(): Android bridge no disponible, usando Web Speech API',
-    { speechSynthesisExists: !!window.speechSynthesis, texto: processedText.slice(0,60) });
+  // ── PRIORIDAD 2: Web Speech API (navegador / PWA) ────────
+  ttsLog('log', 'speak(): sin puente Android, usando Web Speech API',
+    { speechSynthesisExists: !!window.speechSynthesis });
 
   if(!window.speechSynthesis){
-    ttsLog('error', 'speak(): ningún motor de voz disponible (ni Android bridge ni speechSynthesis)');
+    ttsLog('error', 'speak(): ningún motor de voz disponible');
     return;
   }
 
-  // Bug Android WebView: puede quedarse en pausa indefinida — resume() primero
-  try {
-    window.speechSynthesis.resume();
-  } catch(e){ ttsLog('warn', 'speak(): resume() falló', e.message); }
-
+  try { window.speechSynthesis.resume(); } catch(e){}
   window.speechSynthesis.cancel();
 
   const voice = selectVoiceForNarrator(narIdx);
-  const u = new SpeechSynthesisUtterance(processedText);
-  u.lang   = 'es-ES';
-  u.rate   = Math.min(2, Math.max(0.4, state.ttsRate  * nar.rate));
-  u.pitch  = Math.min(2, Math.max(0.1, state.ttsPitch * nar.pitch));
-  u.volume = 1;
+  const u     = new SpeechSynthesisUtterance(processedText);
+  u.lang    = 'es-ES';
+  u.rate    = rate;
+  u.pitch   = pitch;
+  u.volume  = 1;
   if(voice){ u.voice = voice; ttsLog('log', 'speak(): voz seleccionada', voice.name); }
-  else { ttsLog('warn', 'speak(): usando voz del sistema por defecto'); }
+  else { ttsLog('warn', 'speak(): usando voz del sistema'); }
 
-  u.onstart = function(){ ttsLog('log', 'speak(): onstart — reproduciendo ✓'); };
-  u.onend   = function(){ ttsLog('log', 'speak(): onend — fin OK'); };
+  u.onstart = function(){ ttsLog('log', 'speak(): onstart ✓'); };
+  u.onend   = function(){ ttsLog('log', 'speak(): onend OK'); };
   u.onerror = function(e){
-    ttsLog('error', 'speak(): onerror Web Speech API', { error: e.error, charIndex: e.charIndex });
+    ttsLog('error', 'speak(): onerror', { error: e.error });
     if(e.error === 'not-allowed' || e.error === 'NotAllowedError'){
-      ttsUnlocked = false;
-      showAudioBar();
+      ttsUnlocked = false; showAudioBar();
     }
   };
 
   try {
     window.speechSynthesis.speak(u);
-    ttsLog('log', 'speak(): utterance enviada al sintetizador Web Speech API');
+    ttsLog('log', 'speak(): utterance enviada');
   } catch(e){
-    ttsLog('error', 'speak(): excepción al llamar .speak()', e.message);
+    ttsLog('error', 'speak(): excepción', e.message);
   }
 }
 
