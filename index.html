@@ -262,53 +262,10 @@
 
 
 
-  /* ====== ACTIVAR SONIDO (Android WebView) ====== */
-  #audio-unlock-bar{
-    display:none;
-    position:fixed;bottom:0;left:0;width:100%;
-    background:linear-gradient(135deg,var(--purple),var(--pink));
-    color:white;
-    padding:12px 16px;
-    z-index:9998;
-    align-items:center;justify-content:space-between;gap:10px;
-    box-shadow:0 -4px 20px rgba(0,0,0,0.25);
-    font-family:'Nunito',sans-serif;
-    animation:slideUpBar 0.4s ease;
-  }
-  #audio-unlock-bar.visible{ display:flex; }
-  @keyframes slideUpBar{
-    from{transform:translateY(100%);}
-    to{transform:translateY(0);}
-  }
-  #audio-unlock-bar span{
-    font-size:.9rem;font-weight:800;flex:1;
-  }
-  #btn-unlock-audio{
-    background:white;color:var(--purple);
-    border:none;border-radius:50px;
-    padding:10px 20px;
-    font-family:'Fredoka One',cursive;font-size:1rem;
-    cursor:pointer;white-space:nowrap;
-    box-shadow:0 4px 12px rgba(0,0,0,0.15);
-    transition:transform .15s;
-  }
-  #btn-unlock-audio:active{transform:scale(0.95);}
-  #btn-dismiss-audio{
-    background:none;border:none;color:rgba(255,255,255,0.7);
-    font-size:1.3rem;cursor:pointer;padding:4px 8px;
-    line-height:1;
-  }
 
 </style>
 </head>
 <body>
-<!-- ====== ACTIVAR SONIDO BAR ====== -->
-<div id="audio-unlock-bar">
-  <span>🔇 El sonido está bloqueado</span>
-  <button id="btn-unlock-audio" onclick="doUnlockAudio()">🔊 Activar sonido</button>
-  <button id="btn-dismiss-audio" onclick="dismissAudioBar()" title="Cerrar">✕</button>
-</div>
-
 
 
     </div>
@@ -1045,7 +1002,6 @@ function initTTSWithPolling(){
       // 20 intentos × 500ms = 10 segundos máximo
       clearInterval(_ttsPollingTimer);
       ttsLog('error', 'speechSynthesis nunca apareció tras 10s — TTS no disponible en este dispositivo/WebView');
-      showAudioBar(); // Muestra la barra para avisar al usuario
     }
   }
 
@@ -1106,7 +1062,6 @@ function resumeAudioContext(){
 
 // ── 4. Estado de desbloqueo TTS ──────────────────────────
 let ttsUnlocked = false;
-let audioBarDismissed = false;
 
 // ── 5. Desbloqueo automático en primer gesto ─────────────
 function unlockTTS(){
@@ -1126,16 +1081,13 @@ function unlockTTS(){
     u.onstart = function(){
       ttsLog('log', 'unlockTTS: onstart — audio DESBLOQUEADO ✓');
       ttsUnlocked = true;
-      hideAudioBar();
     };
     u.onend = function(){
       ttsLog('log', 'unlockTTS: onend');
       ttsUnlocked = true;
-      hideAudioBar();
     };
     u.onerror = function(e){
       ttsLog('error', 'unlockTTS: onerror', { error: e.error, message: e.message });
-      showAudioBar();
     };
 
     window.speechSynthesis.speak(u);
@@ -1143,78 +1095,17 @@ function unlockTTS(){
 
     // Fallback: si en 900ms no ha respondido, mostrar barra manual
     setTimeout(function(){
-      if(!ttsUnlocked && !audioBarDismissed){
-        ttsLog('warn', 'unlockTTS: timeout 900ms sin onstart — mostrando barra manual');
-        showAudioBar();
+      if(!ttsUnlocked){
+        ttsLog('warn', 'unlockTTS: timeout 900ms sin onstart — audio bloqueado');
       }
     }, 900);
 
   } catch(e){
     ttsLog('error', 'unlockTTS: excepción', e.message);
-    showAudioBar();
   }
 }
 
-// ── 6. Botón manual "Activar sonido" ─────────────────────
-// Usa el mismo orden de prioridad que speak():
-// 1) Puente nativo Android.speak()  2) Web Speech API
-function doUnlockAudio(){
-  ttsLog('log', 'doUnlockAudio() pulsado por usuario');
-  resumeAudioContext();
 
-  // ── PRIORIDAD 1: Puente nativo ───────────────────────────
-  if(window.Android){
-    ttsLog('log', 'doUnlockAudio: probando puente nativo Android ✓');
-    try {
-      if(typeof window.Android.speakWithParams === 'function'){
-        window.Android.speakWithParams('Sonido activado', 1.0, 1.0, 'female');
-      } else if(typeof window.Android.speak === 'function'){
-        window.Android.speak('Sonido activado');
-      }
-      ttsUnlocked = true;
-      hideAudioBar();
-    } catch(e){
-      ttsLog('error', 'doUnlockAudio: puente nativo falló', e.message);
-    }
-    return;
-  }
-
-  // ── PRIORIDAD 2: Web Speech API ──────────────────────────
-  if(!window.speechSynthesis){
-    ttsLog('error', 'doUnlockAudio: ningún motor disponible (ni Android bridge ni speechSynthesis)');
-    return;
-  }
-  try {
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance('Sonido activado');
-    u.lang = 'es-ES'; u.volume = 0.5; u.rate = 1.2;
-
-    u.onstart = function(){
-      ttsLog('log', 'doUnlockAudio: onstart Web Speech — DESBLOQUEADO ✓');
-      ttsUnlocked = true;
-      hideAudioBar();
-    };
-    u.onend = function(){ ttsUnlocked = true; hideAudioBar(); };
-    u.onerror = function(e){
-      ttsLog('error', 'doUnlockAudio: onerror Web Speech', { error: e.error });
-    };
-    window.speechSynthesis.speak(u);
-  } catch(e){
-    ttsLog('error', 'doUnlockAudio: excepción Web Speech', e.message);
-  }
-}
-
-function showAudioBar(){
-  if(audioBarDismissed) return;
-  document.getElementById('audio-unlock-bar').classList.add('visible');
-}
-function hideAudioBar(){
-  document.getElementById('audio-unlock-bar').classList.remove('visible');
-}
-function dismissAudioBar(){
-  audioBarDismissed = true;
-  hideAudioBar();
-}
 
 document.addEventListener('touchstart', unlockTTS, { once:true, passive:true });
 document.addEventListener('click',      unlockTTS, { once:true });
@@ -1293,9 +1184,6 @@ function speak(text){
   u.onend   = function(){ ttsLog('log', 'speak(): onend OK'); };
   u.onerror = function(e){
     ttsLog('error', 'speak(): onerror', { error: e.error });
-    if(e.error === 'not-allowed' || e.error === 'NotAllowedError'){
-      ttsUnlocked = false; showAudioBar();
-    }
   };
 
   try {
